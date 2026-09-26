@@ -1,3 +1,5 @@
+> These limitations describe the historical PowerShell scripts and prompts. For the Rust CLI, see the root README. A live model-to-GitHub acceptance run is still pending.
+
 # Known limitations
 
 This source preview has not passed an end-to-end issue-to-PR acceptance test. It has no automated regression suite or CI checks. Do not treat historical documentation or generated PR templates as evidence that checks passed.

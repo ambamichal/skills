@@ -1,0 +1,33 @@
+use std::{env, fs, io::Write, path::PathBuf};
+fn main() {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let dir = PathBuf::from(env::var("AUTODEV_TEST_DIR").unwrap());
+    let program = env::current_exe().unwrap().file_stem().unwrap().to_string_lossy().to_string();
+    writeln!(fs::OpenOptions::new().create(true).append(true).open(dir.join("calls")).unwrap(), "{program} {args:?}").unwrap();
+    let mode = env::var("AUTODEV_TEST_MODE").unwrap_or_default();
+    if program == "git" {
+        if (mode == "commit-fail" && args.iter().any(|x| x == "commit")) || (mode == "push-fail" && args.iter().any(|x| x == "push")) { std::process::exit(1); }
+        match args[0].as_str() {
+            "rev-parse" if args.iter().any(|x| x == "--show-toplevel") => println!("{}", dir.display()),
+            "rev-parse" if args.iter().any(|x| x == "--git-common-dir") => println!("{}", dir.join(".git").display()),
+            "rev-parse" => println!("0123456789abcdef"),
+            "remote" => if mode == "remote-change" && dir.join("changed-remote").exists() { println!("https://github.com/other/project.git"); } else { println!("https://github.com/test/project.git"); },
+            "branch" => println!("autodev/issue-7"),
+            "worktree" => { fs::create_dir_all(&args[4]).unwrap(); },
+            "diff" if args.iter().any(|x| x == "--name-only") => println!("change.txt"),
+            _ => (),
+        }
+    } else if program == "gh" {
+        if mode == "pr-fail" && args[0] == "pr" { std::process::exit(1); }
+        if args[0] == "issue" { println!("{{\"title\":\"Test issue\",\"body\":\"Implement it\",\"state\":\"OPEN\"}}"); }
+        if args[0] == "pr" { println!("https://github.com/test/project/pull/1"); }
+    } else {
+        if args[0] == "agent" {
+            fs::write("change.txt", "work preserved").unwrap();
+            if mode == "remote-change" { fs::write(dir.join("changed-remote"), "changed").unwrap(); }
+            if mode == "agent-fail" { std::process::exit(9); }
+            if mode == "timeout" { std::thread::sleep(std::time::Duration::from_secs(10)); }
+        }
+        if args[0] == "check" && mode == "check-fail" { std::process::exit(3); }
+    }
+}

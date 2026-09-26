@@ -1,37 +1,85 @@
-# AutoDev
+﻿# AutoDev
 
-Experimental, spec-driven development workflows for Claude Code: take a GitHub issue through planning, implementation, validation, and a pull request.
+A Rust CLI for supervised issue-to-PR development with a coding agent.
 
-**Status: source preview (v0.1.0-alpha.1).** This is a collection of prompts, agents, templates, and legacy PowerShell scripts, not a production-ready autonomous service. The continuous runner has known correctness and safety bugs. Do not run it unattended, including with `-DryRun`. See [known limitations](docs/KNOWN-LIMITATIONS.md).
+**0.2.0-alpha.1 — experimental.** One explicit issue, one isolated Git worktree, required checks, and an optional draft PR. No automatic merge or continuous loop. Failed work is preserved.
 
-## Included
+## Install
 
-- `/autodev`: issue-to-PR workflow instructions for Claude Code.
-- Ten specialized agent definitions for planning, implementation, and validation.
-- Spec Kit-derived commands, templates, and PowerShell utilities.
-- `Start-AutoDevLoop.ps1`: historical continuous runner, retained for development.
-- `Invoke-AutoDev.ps1`: historical helper, currently affected by known bugs.
+Install stable Rust, Git, GitHub CLI, and your coding agent. Authenticate GitHub CLI and the agent separately.
 
-## Explore the workflow
+```sh
+git clone https://github.com/ambamichal/autodev.git
+cd autodev
+cargo install --locked --path .
+```
 
-Requires Git, authenticated GitHub CLI, and Claude Code. PowerShell scripts target Windows; cross-platform execution has not been verified.
+## Configure
 
-1. Clone this repository: `git clone https://github.com/ambamichal/autodev.git`.
-2. Review `.claude/commands/autodev.md` and `.claude/config/autodev-workflow.md` before using them.
-3. In a disposable project, back up existing configuration, then copy the `.claude/` and `.specify/` directories without overwriting project-specific rules.
-4. Copy `.specify/memory/constitution-template.md` to `.specify/memory/constitution.md` and customize it.
-5. Adapt the workflow to the project's base branch, toolchain, test commands, specs, and reviewers. The bundled configuration assumes a Django/React-style project and the legacy scripts assume `main`.
-6. Set `auto_push`, `auto_pr`, and `auto_cleanup` to `false` for initial supervised evaluation. Keep `auto_merge: false`.
-7. In Claude Code, request `/autodev --issue N`. Review the plan and each proposed action. Inspect the diff and actual test results before publishing changes.
+Copy `autodev.example.json` to `autodev.json` in your target repository. Set `github_repo` to its GitHub owner/name, `base_branch` to its integration branch, and `checks` to actual project checks. Commit the configuration: the starting worktree must be clean.
 
-Slash-command options are instructions interpreted by the coding agent, not a validated CLI interface. Resume, dry-run, nested agent delegation, and permission behavior are not release guarantees. Do not supply credentials in issue text or commit agent logs.
+```json
+{
+  "base_branch": "development",
+  "github_repo": "your-account/your-project",
+  "agent": ["claude", "-p"],
+  "checks": [["cargo", "test", "--locked"]],
+  "timeout_seconds": 3600
+}
+```
 
-## Development direction
+Commands are argument arrays, not shell strings. For shell syntax or Windows `.cmd` tools, invoke a trusted shell explicitly, e.g. `["cmd.exe", "/d", "/c", "npm test"]`. Commands execute at the worktree root. At least one check is mandatory. Configuration is trusted executable policy; review it before running.
 
-The next milestone is a verified single-issue cycle with configurable base branch, isolated working directory, mandatory validation, and a reviewed PR. Continuous operation comes after regression tests for failure handling, cancellation, and merge detection.
+The agent receives the task prompt as its final argument. No model or credentials are bundled. No permission-bypass flag is added. Configure your agent's permissions separately.
 
-Read [known limitations](docs/KNOWN-LIMITATIONS.md) and [contributing](CONTRIBUTING.md). Older documents are retained as historical design references; this README describes the release status.
+## Usage
 
-## License and attribution
+```sh
+autodev --repo /path/to/project doctor
+autodev --repo /path/to/project run --issue 123 --dry-run
+autodev --repo /path/to/project run --issue 123
+autodev --repo /path/to/project status
+```
 
-MIT; see [LICENSE](LICENSE). Bundled Spec Kit-derived materials retain the upstream MIT notice in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Claude Code is a separate product and is not included. This is an independent community project.
+- `doctor`: checks Git, GitHub authentication, the agent executable's `--version`, and configuration. It does not run checks or verify model authentication.
+- `--dry-run`: reads configuration and prints the plan. No processes, network requests, or writes. Supply the root containing `autodev.json`.
+- `run`: fetches the configured base, creates `autodev/issue-123` in a separate worktree, runs the agent and checks, then commits locally. Branch/HEAD changes by the agent or checks are rejected. The original checkout stays on its branch.
+- `status`: displays the last recorded cycle event.
+
+To authorize pushing and creating a **draft** PR at the start of a cycle:
+
+```sh
+autodev --repo /path/to/project run --issue 123 --publish
+```
+
+Publication happens only after local checks pass. AutoDev never merges, deploys, closes an issue, or deletes work. Review the diff and CI. Without `--publish`, publish the preserved branch manually after inspection; rerunning the same issue refuses to overwrite existing work.
+
+## Failures and state
+
+State is stored in the common Git directory under `autodev/`: `events.jsonl`, `logs/issue-N/`, and `worktrees/issue-N/`. Logs may contain sensitive output; inspect before sharing. A repository-wide lock prevents overlapping cycles.
+
+Ctrl+C signals cancellation. Agent and check process trees are terminated on cancellation or timeout. Git/GitHub calls are synchronous and can delay cancellation until they return. Forced termination can leave a stale lock; verify its PID is no longer running before manually removing it. A recorded phase is progress, not proof a crashed operation finished.
+
+There is no automatic resume. Inspect the journal, logs, and `git worktree list` after failure. Preserve needed work before manually removing worktrees or branches. Failed PR creation can leave a pushed branch: create the PR manually after review.
+
+**A worktree is not a security sandbox.** Agents and checks have your user permissions, filesystem access, and network access. Process-tree termination is best effort; detached descendants may survive. Use OS/container isolation for untrusted tasks.
+
+## Development
+
+```sh
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
+
+Controlled subprocess tests cover dry-run, orchestration, failure, timeout, and work preservation. They do not exercise a paid model or live GitHub publication. CI targets Windows, Linux, and macOS.
+
+Next: a disposable-repository live acceptance run, then persisted resume and PR-specific merge tracking. Parallel workers and automatic merging are deferred.
+
+## Historical assets
+
+The `.claude/` prompts and `.specify/` templates remain as reference material. Rust reads `autodev.json`; it does not interpret the old Markdown configuration or automatically load bundled agents. Legacy PowerShell runners are unsupported and have [known bugs](docs/KNOWN-LIMITATIONS.md).
+
+## License
+
+[MIT](LICENSE). Spec Kit-derived files retain their [upstream notice](THIRD-PARTY-NOTICES.md). This is an independent community project; Claude Code is a separate product.

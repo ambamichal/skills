@@ -1,0 +1,7 @@
+{
+  "base_branch": "main",
+  "github_repo": "owner/repository",
+  "agent": ["claude", "-p"],
+  "checks": [["cargo", "test", "--locked"]],
+  "timeout_seconds": 3600
+}
