@@ -30,7 +30,7 @@ Give AutoDev one GitHub issue. It prepares a separate worktree, runs your coding
 
 `0.2.0-alpha.1` is a supervised, single-cycle CLI. Local tests cover real Git worktrees, commits, local bare-remote pushes, and failure preservation. The agent and GitHub API are controlled fixtures in those tests; this is not a claim of live model-to-GitHub acceptance.
 
-No continuous loop, automatic merge, deployment, or automatic resume. Legacy PowerShell scripts remain reference material, not the supported runner.
+No continuous loop, automatic merge, deployment, or automatic resume. The supported runner is the Rust CLI.
 
 ## Quickstart
 
@@ -212,6 +212,6 @@ Parallel workers and automatic merges wait until the single-cycle contract is pr
 
 ## Part of Skills
 
-AutoDev lives in [`ambamichal/skills`](https://github.com/ambamichal/skills). Historical `.claude/` prompts and `.specify/` templates are optional references. Rust reads `autodev.json`; it does not interpret the old Markdown configuration or automatically install bundled agents. See [legacy limitations](docs/KNOWN-LIMITATIONS.md).
+AutoDev lives in [`ambamichal/skills`](https://github.com/ambamichal/skills). The CLI reads `autodev.json`; the repository contains its Rust source, tests, and configuration example. Agent installation, authentication, and model selection remain external to AutoDev.
 
-[MIT license](../LICENSE) · [Third-party notices](../THIRD-PARTY-NOTICES.md) · [Contributing](../CONTRIBUTING.md)
+[MIT license](LICENSE) · [Third-party notices](https://github.com/ambamichal/skills/blob/main/THIRD-PARTY-NOTICES.md) · [Contributing](https://github.com/ambamichal/skills/blob/main/CONTRIBUTING.md)

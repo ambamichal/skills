@@ -5,6 +5,8 @@ edition = "2021"
 license = "MIT"
 description = "Supervised issue-to-PR development in isolated Git worktrees"
 repository = "https://github.com/ambamichal/skills"
+readme = "README.md"
+include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "autodev.example.json"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

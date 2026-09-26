@@ -28,6 +28,22 @@ cargo install --locked --path .
 
 While PR #1 is open, clone with `--branch feat/rust-cli` to try the Rust implementation.
 
-Start with the [AutoDev quickstart](autodev/README.md#quickstart). Configuration, recovery, testing, and limitations are documented alongside the tool. Historical workflow assets stay inside the AutoDev directory.
+Start with the [AutoDev quickstart](autodev/README.md#quickstart). Configuration, recovery, testing, and limitations are documented alongside the tool.
+
+```text
+skills/
+├── .github/workflows/rust.yml   # Cross-platform checks
+├── autodev/
+│   ├── src/                    # Rust CLI
+│   ├── tests/                  # Subprocess and Git regression tests
+│   ├── Cargo.toml
+│   ├── Cargo.lock
+│   ├── autodev.example.json
+│   ├── LICENSE
+│   └── README.md
+├── CONTRIBUTING.md
+├── LICENSE
+└── THIRD-PARTY-NOTICES.md
+```
 
 [Contribute](CONTRIBUTING.md) · [MIT license](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)

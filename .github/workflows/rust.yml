@@ -17,3 +17,4 @@ jobs:
       - run: cargo +stable fmt --check
       - run: cargo +stable clippy --locked --all-targets -- -D warnings
       - run: cargo +stable test --locked
+      - run: cargo +stable package --locked

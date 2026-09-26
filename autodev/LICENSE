@@ -1,12 +1,6 @@
-# Third-party notices
-
-The current Rust implementation uses dependencies recorded in `autodev/Cargo.lock`. Each dependency remains under its own license; the project's MIT license does not replace those terms.
-
-The notice below is retained for upstream-derived material in earlier repository revisions. Those workflow assets are no longer distributed in the current source tree or Cargo package. It does not describe a runtime dependency of AutoDev.
-
 MIT License
 
-Copyright GitHub, Inc.
+Copyright (c) 2025-2026 ambamichal and AutoDev contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
