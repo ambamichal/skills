@@ -22,15 +22,15 @@
 
 ---
 
-Give AutoDev one GitHub issue. It prepares a separate worktree, runs your coding agent, checks the resulting changes, and creates a local commit. Add `--publish` to push that commit and open a **draft** PR.
+Give AutoDev an issue or let it select the next task. Rust prepares a separate worktree, executes the configured discovery/planning/implementation/review stages, checks the resulting changes, and creates a local commit. Add `--publish` to push that commit and open a **draft** PR. `autodev loop` repeats the workflow after each PR is manually merged.
 
 **You choose the issue. Your checks gate the change. You decide when to merge.**
 
 ## Current status
 
-`0.2.0-alpha.1` is a supervised, single-cycle CLI. Local tests cover real Git worktrees, commits, local bare-remote pushes, and failure preservation. The agent and GitHub API are controlled fixtures in those tests; this is not a claim of live model-to-GitHub acceptance.
+`0.2.0-alpha.1` is an experimental workflow runner. Local tests cover real Git worktrees, commits, local bare-remote pushes, stage recovery, PR monitoring, task tools, and failure preservation. The agent and GitHub API are controlled fixtures in those tests; this is not a claim of live model-to-GitHub acceptance.
 
-No continuous loop, automatic merge, deployment, or automatic resume. The supported runner is the Rust CLI.
+Rust is the execution engine. Provider-neutral role instructions, specification operations and templates live in [`workflow/`](workflow/README.md). Automatic merging and deployment are not performed.
 
 ## Quickstart
 
@@ -48,7 +48,9 @@ While [PR #1](https://github.com/ambamichal/skills/pull/1) is still open, use `g
 
 ### 2. Tell AutoDev what a passing change means
 
-Create **`autodev.json` at the root of your target repository**. Replace the GitHub repository, base branch, and checks with your project's values. Commit the file; the original checkout must be clean.
+Run `autodev --repo /path/to/project init` to install **`autodev.json` and `workflow/`** without overwriting existing files. The installed example enables discovery, planning, implementation/delegation and quality stages. Replace the GitHub repository, base branch, agent and checks with your project's values. Commit these files; the original checkout must be clean.
+
+For a single agent invocation without explicit stages, this smaller configuration remains supported:
 
 ```json
 {
@@ -84,16 +86,23 @@ Want a draft PR as part of this run?
 autodev --repo /path/to/project run --issue 123 --publish
 ```
 
-No `--publish`, no orchestrator push. Inspect and publish the retained branch manually if you chose a local-only run; rerunning the same issue intentionally refuses to overwrite it.
+The default configuration stops at a local commit. `--publish`, `--until push|pr`, or explicit `workflow.auto_push` / `auto_pr` settings enable publication. Resume a local-only cycle with `run --issue N --resume --publish`; existing work is never silently overwritten.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
+| `init` | Installs configurable workflow instructions, templates and example configuration; preserves existing files. |
+| `next` | Selects the next sequential issue using all paginated GitHub issues. |
 | `doctor` | Validates configuration; checks Git, `gh` authentication, and the optional `agent_probe` command. Without a probe, explicitly reports that the agent was not probed. Does not establish model authentication or execute project checks. |
 | `run --issue N --dry-run` | Reads configuration and prints a plan. No subprocesses, writes, or network calls. Supply the target repository root. |
-| `run --issue N` | Implements one open issue, validates unchanged content, and commits locally. |
+| `run [--issue N]` | Runs configured stages and checks; defaults to a local commit. Without N, selects the next issue. |
 | `run --issue N --publish` | Also pushes the checked commit and opens a draft PR. Never merges. |
+| `run --issue N --resume` | Continues a saved cycle, preserves successful agent stages and rechecks content before publishing. |
+| `run --issue N --until STAGE` | Stops at `prepare`, `implement`, `validate`, `commit`, `push`, or `pr`. |
+| `loop --max-cycles N --poll-interval 30` | Runs sequential cycles, waiting for the exact PR to merge; zero maximum means unlimited. |
+| `loop --wait-for-merge PR_NUMBER` | Waits for a specified initial PR before starting. |
+| `project …` | Feature scaffolding, specification operations, prerequisites, context, task issues/labels/numbering, checks and safe cleanup. See [workflow commands](workflow/README.md). |
 | `status` | Shows the last persisted cycle event, worktree path, and result. |
 
 `origin` fetch and push URLs must match `github_repo`. Standard GitHub HTTPS and `git@github.com:` URLs are supported; GitHub Enterprise URLs and custom SSH aliases are not yet supported.
@@ -117,9 +126,10 @@ The entire backend contract:
 - `agent_input: "argument"` appends the complete UTF-8 task as one final argument. This is the default, preserving existing configurations. OS command-line length limits apply.
 - `agent_input: "stdin"` supplies the task through standard input and appends no argument. AutoDev retains `logs/issue-N/prompt.txt` outside the checkout and uses that file as stdin, avoiding pipe backpressure and command-line size limits. Prefer this mode for large issues or explicit shell wrappers.
 - Exit zero means the agent finished; changes must still pass all configured checks. Nonzero exit, timeout, or cancellation stops the cycle.
+- Explicit workflow stages and specification operations also require `autodev-stage-result.json` with `status: "passed"` and an empty `blockers` array. Missing or blocked results stop processing even when the agent exits zero. Rust archives and removes this control file. A failed process may leave the file for manual inspection before resume.
 - `agent_probe` is optional and runs only in `doctor`. Choose a noninteractive, read-only diagnostic. There is no assumed `--version` convention. Like other Git/doctor calls, it currently has no timeout.
 
-Stdout and stderr go to `agent.log`; AutoDev does not parse vendor-specific output. GitHub remains the issue/PR backend; agent independence does not imply support for other Git hosts.
+Stdout and stderr go to `agent.log` or the configured stage's log; AutoDev does not parse vendor-specific output. Each stage starts a fresh process and can override its backend command/input mode. Delegation within a role uses that backend's capabilities. GitHub remains the issue/PR backend; agent independence does not imply support for other Git hosts.
 
 ## How it works
 
@@ -163,7 +173,9 @@ AutoDev does not delete failed work or force-push over it.
 | Commit hook changes content | Local commit is retained, but not published. Review and validate it manually. |
 | Timeout or Ctrl+C | Agent/check process tree termination is attempted. No subsequent Git/GitHub command starts after cancellation is observed. |
 | Push or PR creation fails | Local work remains. A branch may already exist remotely; inspect before retrying manually. |
-| Same issue is run again | Existing work is preserved; AutoDev refuses to overwrite it. |
+| Same issue is run again | Existing work is preserved; use explicit `--resume`. |
+| Loop restarts while a PR is pending | The recorded issue/PR is reconciled before selecting another task. |
+| PR closes without merge | The loop stops and retains its pending checkpoint. |
 | Stale lock after a forced exit | Verify no cycle is active before removing the lock. Never blindly delete worktrees. |
 
 State lives under the repository's **common Git directory**:
@@ -174,11 +186,15 @@ State lives under the repository's **common Git directory**:
 ├── run.lock
 ├── logs/issue-123/
 │   ├── agent.log
+│   ├── state.json
 │   └── check-1.log
+├── loop.json
 └── worktrees/issue-123/
 ```
 
-Use `git rev-parse --path-format=absolute --git-common-dir` to locate it and `git worktree list` to inspect retained checkouts. Stdin mode also retains `prompt.txt` beside `agent.log`. Logs and prompts may contain sensitive data; review before sharing.
+Use `git rev-parse --path-format=absolute --git-common-dir` to locate it and `git worktree list` to inspect retained checkouts. Stdin mode retains `<stage>-prompt.txt`; stage results and configuration checkpoints remain local. Logs, prompts and saved configuration may contain sensitive data; review before sharing.
+
+Resume requires the original configuration. Agent failure reruns the failed stage; completed stages are preserved. Checks always rerun, and an existing PR is reconciled by branch/base/head before creating another. Publication and notification are separate operations, so a crash can leave a published branch or a delivered notification before its checkpoint; inspect ambiguous external outcomes. Worktrees from versions without `state.json` require manual recovery.
 
 ## Trust boundary
 
@@ -205,13 +221,14 @@ The live model/GitHub acceptance run remains a separate release gate. Green unit
 
 - [ ] Complete a disposable-repository acceptance run with a real coding agent and GitHub.
 - [ ] Bound Git/GitHub network operations and improve cancellation.
-- [ ] Resume a recorded cycle without duplicating work.
-- [ ] Follow a specific PR's merge status before starting another issue.
+- [x] Resume recorded stages and reconcile existing PRs.
+- [x] Follow a specific PR's merge status before starting another issue.
+- [x] Preserve specification, task-management and role workflows through a neutral Rust execution contract.
 
-Parallel workers and automatic merges wait until the single-cycle contract is proven.
+Parallel cycle workers and automatic merges remain outside the supervised workflow.
 
 ## Part of Skills
 
-AutoDev lives in [`ambamichal/skills`](https://github.com/ambamichal/skills). The CLI reads `autodev.json`; the repository contains its Rust source, tests, and configuration example. Agent installation, authentication, and model selection remain external to AutoDev.
+AutoDev lives in [`ambamichal/skills`](https://github.com/ambamichal/skills). The CLI reads `autodev.json`; the repository contains its Rust source, tests, configurable workflow, and templates. Agent installation, authentication, and model selection remain external to AutoDev. See the [workflow parity map](workflow/PARITY.md).
 
 [MIT license](LICENSE) · [Third-party notices](https://github.com/ambamichal/skills/blob/main/THIRD-PARTY-NOTICES.md) · [Contributing](https://github.com/ambamichal/skills/blob/main/CONTRIBUTING.md)

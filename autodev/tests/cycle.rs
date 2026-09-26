@@ -23,6 +23,12 @@ fn fixture_binary() -> &'static PathBuf {
 
 struct Sandbox(PathBuf, Option<PathBuf>);
 impl Sandbox {
+    fn configure(&self, change: impl FnOnce(&mut serde_json::Value)) {
+        let path = self.0.join("autodev.json");
+        let mut value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        change(&mut value);
+        fs::write(path, value.to_string()).unwrap();
+    }
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("autodev-test-{}-{name}", std::process::id()));
         fs::create_dir_all(dir.join("bin")).unwrap();
@@ -62,6 +68,275 @@ impl Sandbox {
     }
     fn calls(&self) -> String {
         fs::read_to_string(self.0.join("calls")).unwrap_or_default()
+    }
+}
+
+#[test]
+fn staged_workflow_blocks_and_resumes_without_repeating_completed_agents() {
+    let test = Sandbox::new("stages");
+    fs::write(
+        test.0.join("stage.md"),
+        "Implement the selected task and report blockers.",
+    )
+    .unwrap();
+    test.configure(|v| v["workflow"] = serde_json::json!({"stages":[{"name":"discovery","prompt":"stage.md"},{"name":"quality","prompt":"stage.md"}]}));
+    let failed = test.invoke(&["run", "--issue", "7", "--publish"], "stage-blocked");
+    assert!(!failed.status.success(), "{failed:?}");
+    assert!(!test.calls().contains("\"commit\""));
+    let validated = test.invoke(
+        &["run", "--issue", "7", "--resume", "--until", "validate"],
+        "",
+    );
+    assert!(validated.status.success(), "{validated:?}");
+    assert_eq!(test.calls().matches("worker [\"agent\"").count(), 3);
+    let published = test.invoke(&["run", "--issue", "7", "--resume", "--publish"], "");
+    assert!(published.status.success(), "{published:?}");
+    assert_eq!(test.calls().matches("worker [\"agent\"").count(), 3);
+    assert_eq!(test.calls().matches("gh [\"pr\", \"create\"").count(), 1);
+    let resumed = test.invoke(&["run", "--issue", "7", "--resume", "--publish"], "");
+    assert!(resumed.status.success(), "{resumed:?}");
+    assert_eq!(test.calls().matches("gh [\"pr\", \"create\"").count(), 1);
+}
+
+#[test]
+fn continuous_loop_waits_for_exact_pr_and_recovers_pending_cycle() {
+    for mode in ["pr-open-once", "pr-closed"] {
+        let test = Sandbox::new(mode);
+        let result = test.invoke(&["loop", "--max-cycles", "1", "--poll-interval", "1"], mode);
+        assert_eq!(result.status.success(), mode != "pr-closed", "{result:?}");
+        assert!(test
+            .calls()
+            .contains("\"view\", \"https://github.com/test/project/pull/1\""));
+        assert!(!test.calls().contains("\"merge\""));
+        if mode == "pr-closed" {
+            assert!(test.0.join(".git/autodev/loop.json").exists());
+            let resumed = test.invoke(
+                &["loop", "--max-cycles", "1", "--poll-interval", "1"],
+                "no-issues",
+            );
+            assert!(resumed.status.success(), "{resumed:?}");
+            assert_eq!(test.calls().matches("worker [\"agent\"").count(), 1);
+            assert!(!test.0.join(".git/autodev/loop.json").exists());
+        }
+    }
+}
+
+#[test]
+fn loop_starts_next_issue_only_after_its_predecessor_pr_merges() {
+    let test = Sandbox::new("loop-two");
+    let result = test.invoke(
+        &["loop", "--max-cycles", "2", "--poll-interval", "1"],
+        "loop-two",
+    );
+    assert!(result.status.success(), "{result:?}");
+    let calls = test.calls();
+    assert_eq!(calls.matches("worker [\"agent\"").count(), 2);
+    assert_eq!(calls.matches("gh [\"pr\", \"create\"").count(), 2);
+    assert!(
+        calls
+            .find("\"view\", \"https://github.com/test/project/pull/1\"")
+            .unwrap()
+            < calls.rfind("worker [\"agent\"").unwrap()
+    );
+    assert!(test
+        .0
+        .join(".git/autodev/worktrees/issue-8/change.txt")
+        .exists());
+}
+
+#[test]
+fn publication_recovers_lost_response_and_notification_without_duplicate_pr() {
+    for mode in ["pr-lost-response", "notify-fail"] {
+        let test = Sandbox::new(mode);
+        test.configure(|v| {
+            v["workflow"] =
+                serde_json::json!({"reviewers":["reviewer"],"notify":["worker","notify"]})
+        });
+        let result = test.invoke(&["run", "--issue", "7", "--publish"], mode);
+        assert!(!result.status.success());
+        let result = test.invoke(&["run", "--issue", "7", "--resume", "--publish"], "");
+        assert!(result.status.success(), "{result:?}");
+        let calls = test.calls();
+        assert_eq!(calls.matches("gh [\"pr\", \"create\"").count(), 1);
+        assert_eq!(calls.matches("worker [\"agent\"").count(), 1);
+        assert!(calls.contains("\"--reviewer\", \"reviewer\""));
+        assert!(calls.contains("worker [\"notify\", \"https://github.com/test/project/pull/1\"]"));
+    }
+}
+
+#[test]
+fn loop_resume_retries_incomplete_notification_without_republishing() {
+    let test = Sandbox::new("loop-notification");
+    test.configure(|v| v["workflow"] = serde_json::json!({"notify":["worker","notify"]}));
+    let first = test.invoke(&["loop", "--max-cycles", "1"], "notify-fail");
+    assert!(!first.status.success());
+    let second = test.invoke(&["loop", "--max-cycles", "1"], "no-issues");
+    assert!(second.status.success(), "{second:?}");
+    let calls = test.calls();
+    assert_eq!(calls.matches("worker [\"notify\"").count(), 2);
+    assert_eq!(calls.matches("\"push\"").count(), 1);
+    assert_eq!(calls.matches("gh [\"pr\", \"create\"").count(), 1);
+}
+
+#[test]
+fn dry_run_reports_effective_publication_and_executes_nothing() {
+    let test = Sandbox::new("policy-dry");
+    test.configure(|v| v["workflow"] = serde_json::json!({"auto_push":true,"auto_pr":true}));
+    let output = test.invoke(&["run", "--dry-run"], "");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("push: true; PR: true"));
+    let output = test.invoke(&["run", "--dry-run", "--until", "validate"], "");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("push: false; PR: false"));
+    assert!(test.invoke(&["loop", "--dry-run"], "").status.success());
+    assert!(test.calls().is_empty());
+    assert!(!test.0.join(".git").exists());
+}
+
+#[test]
+fn project_checks_preserve_partial_staging_and_untracked_files() {
+    let test = Sandbox::with_real_git("check-index");
+    fs::write(test.0.join("partial.txt"), "staged version").unwrap();
+    real_git(&test.0, &["add", "partial.txt"]);
+    fs::write(test.0.join("partial.txt"), "unstaged version").unwrap();
+    fs::write(test.0.join("untracked.txt"), "untracked").unwrap();
+    let before = real_git(&test.0, &["diff", "--cached", "--binary"]);
+    for mode in ["success", "check-fail"] {
+        let result = test.invoke(&["project", "check"], mode);
+        assert_eq!(result.status.success(), mode == "success", "{result:?}");
+        assert_eq!(real_git(&test.0, &["diff", "--cached", "--binary"]), before);
+        assert_eq!(
+            fs::read_to_string(test.0.join("partial.txt")).unwrap(),
+            "unstaged version"
+        );
+        assert!(real_git(&test.0, &["ls-files", "untracked.txt"]).is_empty());
+    }
+}
+
+#[test]
+fn init_specification_tools_and_project_result_gates() {
+    let test = Sandbox::new("project-tools");
+    assert!(test.invoke(&["init"], "").status.success());
+    assert!(test
+        .0
+        .join("workflow/roles/master-orchestrator.md")
+        .is_file());
+    assert!(test.0.join("workflow/templates/spec-template.md").is_file());
+    assert!(test.calls().is_empty());
+    fs::write(
+        test.0.join("workflow/roles/master-orchestrator.md"),
+        "customized",
+    )
+    .unwrap();
+    assert!(test.invoke(&["init"], "").status.success());
+    assert_eq!(
+        fs::read_to_string(test.0.join("workflow/roles/master-orchestrator.md")).unwrap(),
+        "customized"
+    );
+    fs::create_dir_all(test.0.join("specs/001-test")).unwrap();
+    fs::write(test.0.join("specs/001-test/spec.md"), "Spec").unwrap();
+    assert!(test
+        .invoke(&["project", "plan", "specs/001-test"], "")
+        .status
+        .success());
+    assert!(!test
+        .invoke(&["project", "plan", "specs/001-test"], "")
+        .status
+        .success());
+    assert!(test
+        .invoke(&["project", "prerequisites", "specs/001-test"], "")
+        .status
+        .success());
+    fs::write(test.0.join("AGENTS.md"), "Keep my instructions").unwrap();
+    assert!(test
+        .invoke(&["project", "context", "specs/001-test"], "")
+        .status
+        .success());
+    assert!(fs::read_to_string(test.0.join("AGENTS.md"))
+        .unwrap()
+        .starts_with("Keep my instructions"));
+    for mode in ["stage-blocked", "stage-missing", "success"] {
+        let result = test.invoke(&["project", "prompt", "analyze", "specs/001-test"], mode);
+        assert_eq!(result.status.success(), mode == "success", "{result:?}");
+    }
+}
+
+#[test]
+fn task_issue_tools_preserve_metadata_and_make_dry_run_local() {
+    let test = Sandbox::new("task-issues");
+    fs::write(test.0.join("tasks.md"), "## Phase 1: Setup (Priority: P1)\n**Goal**: Ready\n**Independent Test**: Builds\n- [ ] T001 [P] [US1] Implement API\n").unwrap();
+    let result = test.invoke(&["project", "issues", "tasks.md", "--dry-run"], "");
+    assert!(result.status.success(), "{result:?}");
+    assert!(test.calls().is_empty());
+    assert!(String::from_utf8_lossy(&result.stdout).contains("\"p1\""));
+    let result = test.invoke(&["project", "issues", "tasks.md"], "");
+    assert!(result.status.success(), "{result:?}");
+    assert!(test.calls().contains("\"--label\", \"us1\""));
+    assert!(test
+        .invoke(&["project", "issue-labels"], "label-inference")
+        .status
+        .success());
+    assert!(test.calls().contains("\"--add-label\", \"database\""));
+    assert!(test.calls().contains("\"--add-label\", \"us2\""));
+    assert!(test
+        .invoke(&["project", "renumber", "tasks.md", "--offset", "2"], "")
+        .status
+        .success());
+    assert!(fs::read_to_string(test.0.join("tasks.md"))
+        .unwrap()
+        .contains("T003"));
+    assert!(fs::read_to_string(test.0.join("tasks.md.backup"))
+        .unwrap()
+        .contains("T001"));
+    assert!(!test
+        .invoke(&["project", "renumber", "tasks.md", "--offset", "2"], "")
+        .status
+        .success());
+}
+
+#[test]
+fn feature_numbering_uses_local_and_remote_branches() {
+    let test = Sandbox::with_real_git("feature-numbers");
+    real_git(&test.0, &["branch", "005-existing"]);
+    real_git(
+        &test.0,
+        &["push", "origin", "development:refs/heads/009-remote-only"],
+    );
+    let result = test.invoke(&["project", "feature", "new feature"], "");
+    assert!(result.status.success(), "{result:?}");
+    assert_eq!(
+        real_git(&test.0, &["branch", "--show-current"]),
+        "010-new-feature"
+    );
+    assert!(test.0.join("specs/010-new-feature/spec.md").exists());
+}
+
+#[test]
+fn cleanup_keeps_original_checkout_and_refuses_untracked_work() {
+    for dirty in [false, true] {
+        let test = Sandbox::with_real_git(if dirty {
+            "cleanup-dirty"
+        } else {
+            "cleanup-clean"
+        });
+        let result = test.invoke(&["run", "--issue", "7", "--publish"], "");
+        assert!(result.status.success(), "{result:?}");
+        let worktree = test.0.join(".git/autodev/worktrees/issue-7");
+        if dirty {
+            fs::write(worktree.join("valuable.txt"), "keep").unwrap();
+        }
+        let result = test.invoke(&["project", "cleanup", "--issue", "7"], "");
+        assert_eq!(result.status.success(), !dirty, "{result:?}");
+        assert_eq!(worktree.exists(), dirty);
+        assert_eq!(
+            real_git(&test.0, &["branch", "--show-current"]),
+            "development"
+        );
+        assert!(test.0.join(".git/autodev/logs/issue-7/state.json").exists());
+        assert!(!real_git(
+            &test.0,
+            &["ls-remote", "origin", "refs/heads/autodev/issue-7"]
+        )
+        .is_empty());
     }
 }
 
@@ -118,7 +393,7 @@ impl Sandbox {
         );
         fs::write(
             test.0.join(".gitignore"),
-            "bin/\ncalls\nchanged-remote\nremote.git/\n",
+            "bin/\ncalls\nchanged-remote\npr-created\nremote.git/\n",
         )
         .unwrap();
         real_git(&test.0, &["init", "-b", "development"]);

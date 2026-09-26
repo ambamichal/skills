@@ -36,6 +36,7 @@ skills/
 ├── autodev/
 │   ├── src/                    # Rust CLI
 │   ├── tests/                  # Subprocess and Git regression tests
+│   ├── workflow/               # Provider-neutral roles, commands and templates
 │   ├── Cargo.toml
 │   ├── Cargo.lock
 │   ├── autodev.example.json
