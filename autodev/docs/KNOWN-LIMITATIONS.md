@@ -1,4 +1,4 @@
-> These limitations describe the historical PowerShell scripts and prompts. For the Rust CLI, see the root README. A live model-to-GitHub acceptance run is still pending.
+> These limitations describe the historical PowerShell scripts and prompts. For the Rust CLI, see the [AutoDev README](../README.md). A live model-to-GitHub acceptance run is still pending.
 
 # Known limitations
 

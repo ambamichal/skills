@@ -1,9 +1,12 @@
-name: Rust
+name: AutoDev Rust
 on: [push, pull_request]
 permissions:
   contents: read
 jobs:
   check:
+    defaults:
+      run:
+        working-directory: autodev
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]

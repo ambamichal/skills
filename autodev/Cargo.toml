@@ -4,7 +4,7 @@ version = "0.2.0-alpha.1"
 edition = "2021"
 license = "MIT"
 description = "Supervised issue-to-PR development in isolated Git worktrees"
-repository = "https://github.com/ambamichal/autodev"
+repository = "https://github.com/ambamichal/skills"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

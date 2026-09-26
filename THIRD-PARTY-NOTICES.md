@@ -1,6 +1,6 @@
 # Third-party notices
 
-This distribution contains material derived from GitHub Spec Kit, including the `speckit.*` commands and `.specify` templates and utilities. Project-specific modifications are included. The exact upstream revision was not recorded in the historical source snapshot.
+This distribution contains material derived from GitHub Spec Kit, including the `autodev/.claude/commands/speckit.*` commands and `autodev/.specify` templates and utilities. Project-specific modifications are included. The exact upstream revision was not recorded in the historical source snapshot.
 
 Upstream: https://github.com/github/spec-kit
 License source: https://github.com/github/spec-kit/blob/main/LICENSE
