@@ -1,0 +1,20 @@
+name: AutoDev Rust
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    defaults:
+      run:
+        working-directory: autodev
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - run: cargo +stable fmt --check
+      - run: cargo +stable clippy --locked --all-targets -- -D warnings
+      - run: cargo +stable test --locked
+      - run: cargo +stable package --locked

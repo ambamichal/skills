@@ -1,0 +1,84 @@
+use std::{env, fs, io::{Read, Write}, path::PathBuf};
+fn main() {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let dir = PathBuf::from(env::var("AUTODEV_TEST_DIR").unwrap());
+    let program = env::current_exe().unwrap().file_stem().unwrap().to_string_lossy().to_string();
+    writeln!(fs::OpenOptions::new().create(true).append(true).open(dir.join("calls")).unwrap(), "{program} {args:?}").unwrap();
+    let mode = env::var("AUTODEV_TEST_MODE").unwrap_or_default();
+    if program == "git" {
+        if mode == "cancel-before-push" && args[0] == "remote" && dir.join("changed-remote").exists() {
+            fs::write(dir.join("cancel-ready"), "ready").unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        if let Ok(real_git) = env::var("AUTODEV_REAL_GIT") {
+            if !real_git.is_empty() && args[0] != "remote" {
+                let status = std::process::Command::new(real_git).args(&args).status().unwrap();
+                std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+        if (mode == "commit-fail" && args.iter().any(|x| x == "commit")) || (mode == "push-fail" && args.iter().any(|x| x == "push")) { std::process::exit(1); }
+        match args[0].as_str() {
+            "rev-parse" if args.iter().any(|x| x == "--show-toplevel") => println!("{}", dir.display()),
+            "rev-parse" if args.iter().any(|x| x == "--git-common-dir") => println!("{}", dir.join(".git").display()),
+            "rev-parse" => println!("0123456789abcdef"),
+            "write-tree" => println!("0123456789abcdef"),
+            "remote" => if args.len() == 1 { println!("origin"); } else if mode == "remote-change" && dir.join("changed-remote").exists() { println!("https://github.com/other/project.git"); } else { println!("https://github.com/test/project.git"); },
+            "branch" => { let cwd = env::current_dir().unwrap(); let name = cwd.file_name().unwrap().to_string_lossy(); println!("autodev/{}", if name.starts_with("issue-") { name.as_ref() } else { "issue-7" }); },
+            "worktree" => { fs::create_dir_all(&args[4]).unwrap(); },
+            "diff" if args.iter().any(|x| x == "--name-only") => println!("change.txt"),
+            _ => (),
+        }
+    } else if program == "gh" {
+        if mode == "pr-fail" && args[0] == "pr" { std::process::exit(1); }
+        if args[0] == "api" {
+            if mode == "no-issues" || args.iter().any(|s| s.contains("/labels?")) { println!("[[]]"); }
+            else if mode == "loop-two" {
+                let state7 = if dir.join("merged-7").exists() { "closed" } else { "open" };
+                let state8 = if dir.join("merged-8").exists() { "closed" } else { "open" };
+                println!("[[{{\"number\":7,\"title\":\"Test issue\",\"state\":\"{state7}\"}},{{\"number\":8,\"title\":\"Test issue\",\"state\":\"{state8}\"}}]]");
+            }
+            else if mode == "label-inference" { println!("{}", r#"[[{"number":7,"title":"Django API migration [US2]","state":"open","body":"**Phase**: 3\n**Priority**: P1"}]]"#); }
+            else { println!("[[{{\"number\":7,\"title\":\"Test issue\",\"state\":\"open\"}}]]"); }
+        }
+        if args[0] == "issue" && args[1] == "view" { println!("{{\"title\":\"Test issue\",\"body\":\"Implement it\",\"state\":\"OPEN\"}}"); }
+        if args[0] == "issue" && args[1] == "create" { println!("https://github.com/test/project/issues/8"); }
+        if args[0] == "pr" && args[1] == "list" {
+            if mode == "loop-two" { println!("[]"); }
+            else if dir.join("pr-created").exists() { println!("[{{\"url\":\"https://github.com/test/project/pull/1\",\"headRefOid\":\"0123456789abcdef\"}}]"); }
+            else { println!("[]"); }
+        }
+        if args[0] == "pr" && args[1] == "create" {
+            fs::write(dir.join("pr-created"), "yes").unwrap();
+            if mode == "pr-lost-response" { std::process::exit(1); }
+            let number = if args.iter().any(|a| a == "autodev/issue-8") { 2 } else { 1 };
+            println!("https://github.com/test/project/pull/{number}");
+        }
+        if args[0] == "pr" && args[1] == "view" {
+            if mode == "loop-two" { fs::write(dir.join(if args[2].ends_with("/1") { "merged-7" } else { "merged-8" }), "yes").unwrap(); }
+            let state = if mode == "pr-closed" { "CLOSED" } else if mode == "pr-open-once" && !dir.join("pr-polled").exists() { fs::write(dir.join("pr-polled"), "yes").unwrap(); "OPEN" } else { "MERGED" };
+            println!("{{\"state\":\"{state}\",\"baseRefName\":\"development\"}}");
+        }
+    } else {
+        if args[0] == "agent" {
+            let prompt = if args.get(1).map(String::as_str) == Some("--stdin") {
+                assert_eq!(args.len(), 2);
+                let mut prompt = String::new();
+                std::io::stdin().read_to_string(&mut prompt).unwrap();
+                prompt
+            } else { args.last().unwrap().clone() };
+            assert!(prompt.starts_with("Implement GitHub issue #") || prompt.starts_with("Workflow operation:"));
+            assert!(prompt.contains("Do not commit, push"));
+            if prompt.contains("autodev-stage-result.json") && mode != "stage-missing" {
+                let result = if mode == "stage-blocked" { r#"{"status":"blocked","blockers":["dependency incomplete"]}"# } else { r#"{"status":"passed","blockers":[]}"# };
+                fs::write("autodev-stage-result.json", result).unwrap();
+            }
+            fs::write("change.txt", "work preserved").unwrap();
+            if mode == "remote-change" || mode == "cancel-before-push" { fs::write(dir.join("changed-remote"), "changed").unwrap(); }
+            if mode == "agent-fail" { std::process::exit(9); }
+            if mode == "timeout" { std::thread::sleep(std::time::Duration::from_secs(10)); }
+        }
+        if args[0] == "check" && mode == "check-fail" { std::process::exit(3); }
+        if args[0] == "check" && mode == "check-edits" { fs::write("change.txt", "changed during validation").unwrap(); }
+        if args[0] == "notify" && mode == "notify-fail" { std::process::exit(9); }
+    }
+}

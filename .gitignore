@@ -1,9 +1,6 @@
-.env
+﻿.env
 .env.*
 !.env.example
 *.log
-.specify/logs/
-.claude/settings.local.json
-__pycache__/
-.venv/
 .DS_Store
+target/

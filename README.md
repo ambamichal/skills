@@ -1,37 +1,50 @@
-# AutoDev
+﻿# Skills
 
-Experimental, spec-driven development workflows for Claude Code: take a GitHub issue through planning, implementation, validation, and a pull request.
+Open-source tools and workflows for coding agents.
 
-**Status: source preview (v0.1.0-alpha.1).** This is a collection of prompts, agents, templates, and legacy PowerShell scripts, not a production-ready autonomous service. The continuous runner has known correctness and safety bugs. Do not run it unattended, including with `-DryRun`. See [known limitations](docs/KNOWN-LIMITATIONS.md).
+## Featured: AutoDev
 
-## Included
+```text
+    _   _   _ _____ ___  ____  _______     __
+   / \ | | | |_   _/ _ \|  _ \| ____\ \   / /
+  / _ \| | | | | || | | | | | |  _|  \ \ / /
+ / ___ \ |_| | | || |_| | |_| | |___  \ V /
+/_/   \_\___/  |_| \___/|____/|_____|  \_/
+```
 
-- `/autodev`: issue-to-PR workflow instructions for Claude Code.
-- Ten specialized agent definitions for planning, implementation, and validation.
-- Spec Kit-derived commands, templates, and PowerShell utilities.
-- `Start-AutoDevLoop.ps1`: historical continuous runner, retained for development.
-- `Invoke-AutoDev.ps1`: historical helper, currently affected by known bugs.
+**One issue. An isolated worktree. Required checks. A draft PR when you ask.**
 
-## Explore the workflow
+[Explore AutoDev →](autodev/README.md)
 
-Requires Git, authenticated GitHub CLI, and Claude Code. PowerShell scripts target Windows; cross-platform execution has not been verified.
+| Project | Implementation | Status |
+| --- | --- | --- |
+| [AutoDev](autodev/) | Rust CLI for supervised issue-to-PR development | Experimental alpha |
 
-1. Clone this repository: `git clone https://github.com/ambamichal/autodev.git`.
-2. Review `.claude/commands/autodev.md` and `.claude/config/autodev-workflow.md` before using them.
-3. In a disposable project, back up existing configuration, then copy the `.claude/` and `.specify/` directories without overwriting project-specific rules.
-4. Copy `.specify/memory/constitution-template.md` to `.specify/memory/constitution.md` and customize it.
-5. Adapt the workflow to the project's base branch, toolchain, test commands, specs, and reviewers. The bundled configuration assumes a Django/React-style project and the legacy scripts assume `main`.
-6. Set `auto_push`, `auto_pr`, and `auto_cleanup` to `false` for initial supervised evaluation. Keep `auto_merge: false`.
-7. In Claude Code, request `/autodev --issue N`. Review the plan and each proposed action. Inspect the diff and actual test results before publishing changes.
+```sh
+git clone https://github.com/ambamichal/skills.git
+cd skills/autodev
+cargo install --locked --path .
+```
 
-Slash-command options are instructions interpreted by the coding agent, not a validated CLI interface. Resume, dry-run, nested agent delegation, and permission behavior are not release guarantees. Do not supply credentials in issue text or commit agent logs.
+While PR #1 is open, clone with `--branch feat/rust-cli` to try the Rust implementation.
 
-## Development direction
+Start with the [AutoDev quickstart](autodev/README.md#quickstart). Configuration, recovery, testing, and limitations are documented alongside the tool.
 
-The next milestone is a verified single-issue cycle with configurable base branch, isolated working directory, mandatory validation, and a reviewed PR. Continuous operation comes after regression tests for failure handling, cancellation, and merge detection.
+```text
+skills/
+├── .github/workflows/rust.yml   # Cross-platform checks
+├── autodev/
+│   ├── src/                    # Rust CLI
+│   ├── tests/                  # Subprocess and Git regression tests
+│   ├── workflow/               # Provider-neutral stages, commands and templates
+│   ├── Cargo.toml
+│   ├── Cargo.lock
+│   ├── autodev.example.json
+│   ├── LICENSE
+│   └── README.md
+├── CONTRIBUTING.md
+├── LICENSE
+└── THIRD-PARTY-NOTICES.md
+```
 
-Read [known limitations](docs/KNOWN-LIMITATIONS.md) and [contributing](CONTRIBUTING.md). Older documents are retained as historical design references; this README describes the release status.
-
-## License and attribution
-
-MIT; see [LICENSE](LICENSE). Bundled Spec Kit-derived materials retain the upstream MIT notice in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Claude Code is a separate product and is not included. This is an independent community project.
+[Contribute](CONTRIBUTING.md) · [MIT license](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)
