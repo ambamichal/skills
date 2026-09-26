@@ -1,7 +1,9 @@
 {
   "base_branch": "main",
   "github_repo": "owner/repository",
-  "agent": ["claude", "-p", "--permission-mode", "acceptEdits"],
+  "agent": ["codex", "exec", "--sandbox", "workspace-write", "-"],
+  "agent_input": "stdin",
+  "agent_probe": ["codex", "--version"],
   "checks": [["cargo", "test", "--locked"]],
   "timeout_seconds": 3600
 }

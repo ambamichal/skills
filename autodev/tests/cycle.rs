@@ -187,6 +187,37 @@ impl Drop for Sandbox {
 }
 
 #[test]
+fn backend_input_and_explicit_probe_are_provider_independent() {
+    for input in ["argument", "stdin"] {
+        for mode in ["success", "agent-fail", "timeout"] {
+            let test = Sandbox::new(&format!("backend-{input}-{mode}"));
+            let path = test.0.join("autodev.json");
+            let mut config: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            config["agent_input"] = input.into();
+            if input == "stdin" {
+                config["agent"] = serde_json::json!(["worker", "agent", "--stdin"]);
+            }
+            fs::write(&path, config.to_string()).unwrap();
+            let doctor = test.invoke(&["doctor"], "");
+            assert!(doctor.status.success(), "{doctor:?}");
+            assert!(!test.calls().contains("worker"));
+            config["agent_probe"] = serde_json::json!(["worker", "health"]);
+            fs::write(&path, config.to_string()).unwrap();
+            assert!(test.invoke(&["doctor"], "").status.success());
+            assert!(test.calls().contains("worker [\"health\"]"));
+            let result = test.invoke(&["run", "--issue", "7", "--publish"], mode);
+            assert_eq!(
+                result.status.success(),
+                mode == "success",
+                "{input}/{mode}: {result:?}"
+            );
+            assert_eq!(test.calls().contains("\"push\""), mode == "success");
+        }
+    }
+}
+
+#[test]
 fn dry_run_has_no_processes_or_state_writes() {
     let test = Sandbox::new("dry");
     let result = test.invoke(&["run", "--issue", "7", "--dry-run", "--publish"], "");

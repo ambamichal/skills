@@ -10,7 +10,7 @@
         ISSUE IN. CHECKED COMMIT OUT.
 ```
 
-**A small Rust CLI for supervised AI development.**
+**A small, backend-agnostic Rust CLI for supervised AI development.**
 
 [![Rust](https://img.shields.io/badge/built_with-Rust-dea584?style=flat-square)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](../LICENSE)
@@ -34,7 +34,7 @@ No continuous loop, automatic merge, deployment, or automatic resume. Legacy Pow
 
 ## Quickstart
 
-**Prerequisites:** stable Rust, Git, authenticated GitHub CLI (`gh`), and an authenticated coding agent such as Claude Code. Check commands must already be available in the target project's environment.
+**Prerequisites:** stable Rust, Git, authenticated GitHub CLI (`gh`), and a coding agent configured with its own authentication and permissions. Claude is not required. Check commands must already be available in the target project's environment.
 
 ### 1. Build once
 
@@ -54,7 +54,9 @@ Create **`autodev.json` at the root of your target repository**. Replace the Git
 {
   "base_branch": "development",
   "github_repo": "your-account/your-project",
-  "agent": ["claude", "-p", "--permission-mode", "acceptEdits"],
+  "agent": ["codex", "exec", "--sandbox", "workspace-write", "-"],
+  "agent_input": "stdin",
+  "agent_probe": ["codex", "--version"],
   "checks": [
     ["cargo", "fmt", "--check"],
     ["cargo", "test", "--locked"]
@@ -63,7 +65,7 @@ Create **`autodev.json` at the root of your target repository**. Replace the Git
 }
 ```
 
-`acceptEdits` permits Claude's file edits; it does not grant unrestricted shell permissions. Review your agent's permission policy. AutoDev itself adds no bypass flag. Other agents work if they accept the task prompt as the final argument.
+This example uses Codex; replace the agent settings using the options below. Review your backend's permission policy for unattended execution. AutoDev adds no permission-bypass flags.
 
 Commands are **argument arrays**, not shell strings. Arguments containing spaces stay intact. For shell syntax or Windows `.cmd` tools, invoke your shell explicitly, for example `["cmd.exe", "/d", "/c", "npm test"]`. All commands run at the worktree root. Checks must be read-only with respect to source files: use `--check`, not autoformatting commands.
 
@@ -88,13 +90,36 @@ No `--publish`, no orchestrator push. Inspect and publish the retained branch ma
 
 | Command | What it does |
 | --- | --- |
-| `doctor` | Validates configuration; checks Git, `gh` authentication, and the agent executable's version. Does not test model authentication or execute project checks. |
+| `doctor` | Validates configuration; checks Git, `gh` authentication, and the optional `agent_probe` command. Without a probe, explicitly reports that the agent was not probed. Does not establish model authentication or execute project checks. |
 | `run --issue N --dry-run` | Reads configuration and prints a plan. No subprocesses, writes, or network calls. Supply the target repository root. |
 | `run --issue N` | Implements one open issue, validates unchanged content, and commits locally. |
 | `run --issue N --publish` | Also pushes the checked commit and opens a draft PR. Never merges. |
 | `status` | Shows the last persisted cycle event, worktree path, and result. |
 
 `origin` fetch and push URLs must match `github_repo`. Standard GitHub HTTPS and `git@github.com:` URLs are supported; GitHub Enterprise URLs and custom SSH aliases are not yet supported.
+
+## Bring your own agent
+
+AutoDev orchestrates **processes, not providers**. No Claude SDK, model API, or provider account is built into the Rust runner. Choose a CLI or an adapter that can actually edit the checkout; a text-only model endpoint is not an agent by itself. Model selection, credentials, tools, and permissions belong to that backend.
+
+| Backend | `agent` | `agent_input` | Optional `agent_probe` |
+| --- | --- | --- | --- |
+| Codex CLI | `["codex", "exec", "--sandbox", "workspace-write", "-"]` | `"stdin"` | `["codex", "--version"]` |
+| Claude Code | `["claude", "-p", "--permission-mode", "acceptEdits"]` | `"argument"` | `["claude", "--version"]` |
+| OpenCode | `["opencode", "run"]` | `"argument"` | `["opencode", "--version"]` |
+| Your adapter | `["python", "/absolute/path/to/agent.py"]` | `"stdin"` | `["python", "/absolute/path/to/agent.py", "health"]` |
+
+Examples follow locally inspected CLI help, not live provider acceptance tests. Configure authentication and tool permissions in the chosen backend before running AutoDev. On Windows, npm shims may require an explicit shell: for Codex use `["cmd.exe", "/d", "/c", "codex", "exec", "--sandbox", "workspace-write", "-"]` and probe `["cmd.exe", "/d", "/c", "codex", "--version"]`.
+
+The entire backend contract:
+
+- `agent` is an executable plus fixed arguments, launched at the worktree root with inherited environment.
+- `agent_input: "argument"` appends the complete UTF-8 task as one final argument. This is the default, preserving existing configurations. OS command-line length limits apply.
+- `agent_input: "stdin"` supplies the task through standard input and appends no argument. AutoDev retains `logs/issue-N/prompt.txt` outside the checkout and uses that file as stdin, avoiding pipe backpressure and command-line size limits. Prefer this mode for large issues or explicit shell wrappers.
+- Exit zero means the agent finished; changes must still pass all configured checks. Nonzero exit, timeout, or cancellation stops the cycle.
+- `agent_probe` is optional and runs only in `doctor`. Choose a noninteractive, read-only diagnostic. There is no assumed `--version` convention. Like other Git/doctor calls, it currently has no timeout.
+
+Stdout and stderr go to `agent.log`; AutoDev does not parse vendor-specific output. GitHub remains the issue/PR backend; agent independence does not imply support for other Git hosts.
 
 ## How it works
 
@@ -153,7 +178,7 @@ State lives under the repository's **common Git directory**:
 └── worktrees/issue-123/
 ```
 
-Use `git rev-parse --path-format=absolute --git-common-dir` to locate it and `git worktree list` to inspect retained checkouts. Logs may contain sensitive agent output; review before sharing.
+Use `git rev-parse --path-format=absolute --git-common-dir` to locate it and `git worktree list` to inspect retained checkouts. Stdin mode also retains `prompt.txt` beside `agent.log`. Logs and prompts may contain sensitive data; review before sharing.
 
 ## Trust boundary
 

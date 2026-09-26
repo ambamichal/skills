@@ -1,4 +1,4 @@
-use std::{env, fs, io::Write, path::PathBuf};
+use std::{env, fs, io::{Read, Write}, path::PathBuf};
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let dir = PathBuf::from(env::var("AUTODEV_TEST_DIR").unwrap());
@@ -34,6 +34,14 @@ fn main() {
         if args[0] == "pr" { println!("https://github.com/test/project/pull/1"); }
     } else {
         if args[0] == "agent" {
+            let prompt = if args.get(1).map(String::as_str) == Some("--stdin") {
+                assert_eq!(args.len(), 2);
+                let mut prompt = String::new();
+                std::io::stdin().read_to_string(&mut prompt).unwrap();
+                prompt
+            } else { args.last().unwrap().clone() };
+            assert!(prompt.starts_with("Implement GitHub issue #7: Test issue\n\nImplement it"));
+            assert!(prompt.contains("Do not commit, push"));
             fs::write("change.txt", "work preserved").unwrap();
             if mode == "remote-change" || mode == "cancel-before-push" { fs::write(dir.join("changed-remote"), "changed").unwrap(); }
             if mode == "agent-fail" { std::process::exit(9); }
