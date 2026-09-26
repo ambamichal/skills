@@ -21,7 +21,7 @@ fn fixture_binary() -> &'static PathBuf {
     })
 }
 
-struct Sandbox(PathBuf);
+struct Sandbox(PathBuf, Option<PathBuf>);
 impl Sandbox {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("autodev-test-{}-{name}", std::process::id()));
@@ -36,25 +36,148 @@ impl Sandbox {
         }
         let config = serde_json::json!({"base_branch":"development", "github_repo":"test/project", "agent":["worker","agent"], "checks":[["worker","check"]], "timeout_seconds":1});
         fs::write(dir.join("autodev.json"), config.to_string()).unwrap();
-        Self(dir)
+        Self(dir, None)
     }
     fn invoke(&self, args: &[&str], mode: &str) -> Output {
+        self.command(args, mode).output().unwrap()
+    }
+    fn command(&self, args: &[&str], mode: &str) -> Command {
         let mut paths = vec![self.0.join("bin")];
         paths.extend(std::env::split_paths(
             &std::env::var_os("PATH").unwrap_or_default(),
         ));
-        Command::new(env!("CARGO_BIN_EXE_autodev"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_autodev"));
+        command
             .args(["--repo"])
             .arg(&self.0)
             .args(args)
             .env("PATH", std::env::join_paths(paths).unwrap())
             .env("AUTODEV_TEST_DIR", &self.0)
             .env("AUTODEV_TEST_MODE", mode)
-            .output()
-            .unwrap()
+            .env(
+                "AUTODEV_REAL_GIT",
+                self.1.as_deref().unwrap_or(std::path::Path::new("")),
+            );
+        command
     }
     fn calls(&self) -> String {
         fs::read_to_string(self.0.join("calls")).unwrap_or_default()
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn cancellation_during_remote_check_prevents_push() {
+    let test = Sandbox::new("cancel-before-push");
+    let mut child = test
+        .command(&["run", "--issue", "7", "--publish"], "cancel-before-push")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let start = std::time::Instant::now();
+    while !test.0.join("cancel-ready").exists() {
+        if start.elapsed() > std::time::Duration::from_secs(10) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("remote check not reached");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap()
+        .success());
+    assert!(!child.wait().unwrap().success());
+    assert!(!test.calls().contains("\"push\""));
+}
+
+fn real_git(root: &std::path::Path, args: &[&str]) -> String {
+    let result = Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
+
+impl Sandbox {
+    fn with_real_git(name: &str) -> Self {
+        let mut test = Self::new(name);
+        test.1 = Some(
+            std::env::split_paths(&std::env::var_os("PATH").unwrap())
+                .map(|path| path.join(format!("git{}", std::env::consts::EXE_SUFFIX)))
+                .find(|path| path.is_file())
+                .expect("Git executable on PATH"),
+        );
+        fs::write(
+            test.0.join(".gitignore"),
+            "bin/\ncalls\nchanged-remote\nremote.git/\n",
+        )
+        .unwrap();
+        real_git(&test.0, &["init", "-b", "development"]);
+        real_git(&test.0, &["config", "user.name", "AutoDev test"]);
+        real_git(&test.0, &["config", "user.email", "test@example.invalid"]);
+        real_git(&test.0, &["add", "."]);
+        real_git(&test.0, &["commit", "-m", "seed"]);
+        real_git(&test.0, &["init", "--bare", "remote.git"]);
+        real_git(
+            &test.0,
+            &[
+                "remote",
+                "add",
+                "origin",
+                &test.0.join("remote.git").to_string_lossy(),
+            ],
+        );
+        real_git(&test.0, &["push", "origin", "development"]);
+        test
+    }
+}
+
+#[test]
+fn real_git_cycle_publishes_only_the_checked_tree() {
+    for mode in ["success", "check-fail", "hook-edits", "check-edits"] {
+        let test = Sandbox::with_real_git(&format!("real-{mode}"));
+        if mode == "hook-edits" {
+            let hook = test.0.join(".git/hooks/pre-commit");
+            fs::write(
+                &hook,
+                "#!/bin/sh\nprintf 'changed by hook' > change.txt\ngit add change.txt\n",
+            )
+            .unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let result = test.invoke(&["run", "--issue", "7", "--publish"], mode);
+        assert_eq!(
+            result.status.success(),
+            mode == "success",
+            "{mode}: {result:?}"
+        );
+        assert_eq!(
+            real_git(&test.0, &["branch", "--show-current"]),
+            "development"
+        );
+        assert!(real_git(&test.0, &["status", "--porcelain"]).is_empty());
+        let remote_head = real_git(
+            &test.0,
+            &["ls-remote", "origin", "refs/heads/autodev/issue-7"],
+        );
+        assert_eq!(!remote_head.is_empty(), mode == "success");
+        assert!(test
+            .0
+            .join(".git/autodev/worktrees/issue-7/change.txt")
+            .exists());
     }
 }
 impl Drop for Sandbox {

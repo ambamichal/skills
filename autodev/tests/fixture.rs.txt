@@ -6,11 +6,22 @@ fn main() {
     writeln!(fs::OpenOptions::new().create(true).append(true).open(dir.join("calls")).unwrap(), "{program} {args:?}").unwrap();
     let mode = env::var("AUTODEV_TEST_MODE").unwrap_or_default();
     if program == "git" {
+        if mode == "cancel-before-push" && args[0] == "remote" && dir.join("changed-remote").exists() {
+            fs::write(dir.join("cancel-ready"), "ready").unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        if let Ok(real_git) = env::var("AUTODEV_REAL_GIT") {
+            if !real_git.is_empty() && args[0] != "remote" {
+                let status = std::process::Command::new(real_git).args(&args).status().unwrap();
+                std::process::exit(status.code().unwrap_or(1));
+            }
+        }
         if (mode == "commit-fail" && args.iter().any(|x| x == "commit")) || (mode == "push-fail" && args.iter().any(|x| x == "push")) { std::process::exit(1); }
         match args[0].as_str() {
             "rev-parse" if args.iter().any(|x| x == "--show-toplevel") => println!("{}", dir.display()),
             "rev-parse" if args.iter().any(|x| x == "--git-common-dir") => println!("{}", dir.join(".git").display()),
             "rev-parse" => println!("0123456789abcdef"),
+            "write-tree" => println!("0123456789abcdef"),
             "remote" => if mode == "remote-change" && dir.join("changed-remote").exists() { println!("https://github.com/other/project.git"); } else { println!("https://github.com/test/project.git"); },
             "branch" => println!("autodev/issue-7"),
             "worktree" => { fs::create_dir_all(&args[4]).unwrap(); },
@@ -24,10 +35,11 @@ fn main() {
     } else {
         if args[0] == "agent" {
             fs::write("change.txt", "work preserved").unwrap();
-            if mode == "remote-change" { fs::write(dir.join("changed-remote"), "changed").unwrap(); }
+            if mode == "remote-change" || mode == "cancel-before-push" { fs::write(dir.join("changed-remote"), "changed").unwrap(); }
             if mode == "agent-fail" { std::process::exit(9); }
             if mode == "timeout" { std::thread::sleep(std::time::Duration::from_secs(10)); }
         }
         if args[0] == "check" && mode == "check-fail" { std::process::exit(3); }
+        if args[0] == "check" && mode == "check-edits" { fs::write("change.txt", "changed during validation").unwrap(); }
     }
 }

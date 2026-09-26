@@ -1,7 +1,7 @@
 {
   "base_branch": "main",
   "github_repo": "owner/repository",
-  "agent": ["claude", "-p"],
+  "agent": ["claude", "-p", "--permission-mode", "acceptEdits"],
   "checks": [["cargo", "test", "--locked"]],
   "timeout_seconds": 3600
 }

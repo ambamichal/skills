@@ -5,15 +5,13 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
 };
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+static CANCELLED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Parser)]
 #[command(version, about = "Supervised issue-to-PR development")]
@@ -61,7 +59,9 @@ fn default_timeout() -> u64 {
 
 impl Config {
     fn load(root: &Path) -> Result<Self> {
-        let config: Self = serde_json::from_slice(&fs::read(root.join("autodev.json"))?)?;
+        let bytes = fs::read(root.join("autodev.json"))?;
+        let config: Self =
+            serde_json::from_slice(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes))?;
         config.validate()?;
         Ok(config)
     }
@@ -95,6 +95,9 @@ impl Config {
 }
 
 fn output(root: &Path, program: &str, args: &[&str]) -> Result<String> {
+    if CANCELLED.load(Ordering::SeqCst) {
+        return Err("cancelled before starting next command".into());
+    }
     let output = Command::new(program)
         .args(args)
         .current_dir(root)
@@ -372,6 +375,17 @@ fn run(
             config.timeout_seconds,
             cancelled,
         )?;
+        if git(&worktree, &["branch", "--show-current"])? != branch
+            || git(&worktree, &["rev-parse", "HEAD"])? != base
+        {
+            return Err("agent changed branch/HEAD; refusing to validate".into());
+        }
+        git(&worktree, &["add", "--all"])?;
+        if git(&worktree, &["diff", "--cached", "--name-only"])?.is_empty() {
+            return Err("no changes to commit".into());
+        }
+        git(&worktree, &["diff", "--cached", "--check"])?;
+        let checked_tree = git(&worktree, &["write-tree"])?;
         for (index, check) in config.checks.iter().enumerate() {
             record(
                 &dir,
@@ -387,6 +401,13 @@ fn run(
                 config.timeout_seconds,
                 cancelled,
             )?;
+            git(&worktree, &["add", "--all"])?;
+            if git(&worktree, &["write-tree"])? != checked_tree {
+                return Err(
+                    "validation changed the source tree; changes preserved, rerun checks manually"
+                        .into(),
+                );
+            }
         }
         if cancelled.load(Ordering::SeqCst) {
             return Err("cancelled".into());
@@ -396,16 +417,17 @@ fn run(
         {
             return Err("agent or checks changed branch/HEAD; refusing to publish".into());
         }
-        git(&worktree, &["add", "--all"])?;
-        if git(&worktree, &["diff", "--cached", "--name-only"])?.is_empty() {
-            return Err("no changes to commit".into());
-        }
-        git(&worktree, &["diff", "--cached", "--check"])?;
         git(
             &worktree,
             &["commit", "-m", &format!("feat: implement issue #{issue}")],
         )?;
         let sha = git(&worktree, &["rev-parse", "HEAD"])?;
+        if git(&worktree, &["rev-parse", "HEAD^{tree}"])? != checked_tree
+            || !git(&worktree, &["status", "--porcelain"])?.is_empty()
+            || git(&worktree, &["branch", "--show-current"])? != branch
+        {
+            return Err("commit hooks changed validated content or checkout; commit and work preserved, refusing to publish".into());
+        }
         record(&dir, issue, &worktree, "validated", &sha)?;
         if publish {
             if cancelled.load(Ordering::SeqCst) {
@@ -510,11 +532,9 @@ fn entry() -> Result<()> {
         );
         return Ok(());
     }
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let flag = cancelled.clone();
-    ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))?;
+    ctrlc::set_handler(|| CANCELLED.store(true, Ordering::SeqCst))?;
     if let Action::Run { issue, publish, .. } = cli.command {
-        run(&root, &config, issue, publish, &cancelled)?;
+        run(&root, &config, issue, publish, &CANCELLED)?;
     }
     Ok(())
 }
@@ -537,6 +557,78 @@ mod tests {
         assert!(config.validate().is_err());
         config.checks.push(vec![]);
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn config_defaults_and_trust_boundary_validation() {
+        let valid = serde_json::json!({"base_branch":"main", "github_repo":"owner/repo", "agent":["agent", "argument with spaces"], "checks":[["test"]]});
+        let parsed: Config = serde_json::from_value(valid.clone()).unwrap();
+        assert_eq!(parsed.timeout_seconds, 3600);
+        assert!(parsed.validate().is_ok());
+        let dir = std::env::temp_dir().join(format!("autodev-bom-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("autodev.json"), format!("\u{feff}{valid}")).unwrap();
+        assert_eq!(Config::load(&dir).unwrap().github_repo, "owner/repo");
+        fs::remove_dir_all(dir).unwrap();
+        for (key, value) in [
+            ("github_repo", serde_json::json!("owner/repo/extra")),
+            ("base_branch", serde_json::json!("--upload-pack=evil")),
+            ("timeout_seconds", serde_json::json!(0)),
+            ("agent", serde_json::json!([])),
+            ("checks", serde_json::json!([["test", "bad\u{0}arg"]])),
+        ] {
+            let mut bad = valid.clone();
+            bad[key] = value;
+            assert!(
+                serde_json::from_value::<Config>(bad)
+                    .unwrap()
+                    .validate()
+                    .is_err(),
+                "{key}"
+            );
+        }
+        let mut unknown = valid;
+        unknown["auto_merge"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Config>(unknown).is_err());
+    }
+
+    #[test]
+    fn already_cancelled_execution_creates_no_log_or_process() {
+        let log = std::env::temp_dir().join(format!("autodev-cancel-{}.log", std::process::id()));
+        let result = execute(
+            Path::new("."),
+            &["nonexistent-autodev-command".into()],
+            &log,
+            1,
+            &AtomicBool::new(true),
+        );
+        assert_eq!(result.unwrap_err().to_string(), "cancelled");
+        assert!(!log.exists());
+    }
+
+    #[test]
+    fn journal_appends_complete_events() {
+        let dir = std::env::temp_dir().join(format!("autodev-journal-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        record(
+            &dir,
+            7,
+            Path::new("work tree"),
+            "starting",
+            "line one\nline two",
+        )
+        .unwrap();
+        record(&dir, 7, Path::new("work tree"), "failed", "preserved").unwrap();
+        let text = fs::read_to_string(dir.join("events.jsonl")).unwrap();
+        let events: Vec<Event> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].detail, "line one\nline two");
+        assert_eq!(events[1].phase, "failed");
+        assert_eq!(events[1].issue, 7);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

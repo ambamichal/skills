@@ -1,12 +1,42 @@
-# AutoDev
+﻿<div align="center">
 
-A Rust CLI for supervised issue-to-PR development with a coding agent.
+```text
+    _   _   _ _____ ___  ____  _______     __
+   / \ | | | |_   _/ _ \|  _ \| ____\ \   / /
+  / _ \| | | | | || | | | | | |  _|  \ \ / /
+ / ___ \ |_| | | || |_| | |_| | |___  \ V /
+/_/   \_\___/  |_| \___/|____/|_____|  \_/
 
-**0.2.0-alpha.1 — experimental.** One explicit issue, one isolated Git worktree, required checks, and an optional draft PR. No automatic merge or continuous loop. Failed work is preserved.
+        ISSUE IN. CHECKED COMMIT OUT.
+```
 
-## Install
+**A small Rust CLI for supervised AI development.**
 
-Install stable Rust, Git, GitHub CLI, and your coding agent. Authenticate GitHub CLI and the agent separately.
+[![Rust](https://img.shields.io/badge/built_with-Rust-dea584?style=flat-square)](Cargo.toml)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](../LICENSE)
+[![Stage](https://img.shields.io/badge/stage-experimental_alpha-orange?style=flat-square)](#current-status)
+
+[Quickstart](#quickstart) · [Commands](#commands) · [How it works](#how-it-works) · [Recovery](#when-a-run-fails) · [Testing](#testing)
+
+</div>
+
+---
+
+Give AutoDev one GitHub issue. It prepares a separate worktree, runs your coding agent, checks the resulting changes, and creates a local commit. Add `--publish` to push that commit and open a **draft** PR.
+
+**You choose the issue. Your checks gate the change. You decide when to merge.**
+
+## Current status
+
+`0.2.0-alpha.1` is a supervised, single-cycle CLI. Local tests cover real Git worktrees, commits, local bare-remote pushes, and failure preservation. The agent and GitHub API are controlled fixtures in those tests; this is not a claim of live model-to-GitHub acceptance.
+
+No continuous loop, automatic merge, deployment, or automatic resume. Legacy PowerShell scripts remain reference material, not the supported runner.
+
+## Quickstart
+
+**Prerequisites:** stable Rust, Git, authenticated GitHub CLI (`gh`), and an authenticated coding agent such as Claude Code. Check commands must already be available in the target project's environment.
+
+### 1. Build once
 
 ```sh
 git clone https://github.com/ambamichal/skills.git
@@ -14,25 +44,30 @@ cd skills/autodev
 cargo install --locked --path .
 ```
 
-## Configure
+While [PR #1](https://github.com/ambamichal/skills/pull/1) is still open, use `git clone --branch feat/rust-cli https://github.com/ambamichal/skills.git` to try this implementation.
 
-Copy `autodev.example.json` to `autodev.json` in your target repository. Set `github_repo` to its GitHub owner/name, `base_branch` to its integration branch, and `checks` to actual project checks. Commit the configuration: the starting worktree must be clean.
+### 2. Tell AutoDev what a passing change means
+
+Create **`autodev.json` at the root of your target repository**. Replace the GitHub repository, base branch, and checks with your project's values. Commit the file; the original checkout must be clean.
 
 ```json
 {
   "base_branch": "development",
   "github_repo": "your-account/your-project",
-  "agent": ["claude", "-p"],
-  "checks": [["cargo", "test", "--locked"]],
+  "agent": ["claude", "-p", "--permission-mode", "acceptEdits"],
+  "checks": [
+    ["cargo", "fmt", "--check"],
+    ["cargo", "test", "--locked"]
+  ],
   "timeout_seconds": 3600
 }
 ```
 
-Commands are argument arrays, not shell strings. For shell syntax or Windows `.cmd` tools, invoke a trusted shell explicitly, e.g. `["cmd.exe", "/d", "/c", "npm test"]`. Commands execute at the worktree root. At least one check is mandatory. Configuration is trusted executable policy; review it before running.
+`acceptEdits` permits Claude's file edits; it does not grant unrestricted shell permissions. Review your agent's permission policy. AutoDev itself adds no bypass flag. Other agents work if they accept the task prompt as the final argument.
 
-The agent receives the task prompt as its final argument. No model or credentials are bundled. No permission-bypass flag is added. Configure your agent's permissions separately.
+Commands are **argument arrays**, not shell strings. Arguments containing spaces stay intact. For shell syntax or Windows `.cmd` tools, invoke your shell explicitly, for example `["cmd.exe", "/d", "/c", "npm test"]`. All commands run at the worktree root. Checks must be read-only with respect to source files: use `--check`, not autoformatting commands.
 
-## Usage
+### 3. Inspect, then run
 
 ```sh
 autodev --repo /path/to/project doctor
@@ -41,45 +76,117 @@ autodev --repo /path/to/project run --issue 123
 autodev --repo /path/to/project status
 ```
 
-- `doctor`: checks Git, GitHub authentication, the agent executable's `--version`, and configuration. It does not run checks or verify model authentication.
-- `--dry-run`: reads configuration and prints the plan. No processes, network requests, or writes. Supply the root containing `autodev.json`.
-- `run`: fetches the configured base, creates `autodev/issue-123` in a separate worktree, runs the agent and checks, then commits locally. Branch/HEAD changes by the agent or checks are rejected. The original checkout stays on its branch.
-- `status`: displays the last recorded cycle event.
-
-To authorize pushing and creating a **draft** PR at the start of a cycle:
+Want a draft PR as part of this run?
 
 ```sh
 autodev --repo /path/to/project run --issue 123 --publish
 ```
 
-Publication happens only after local checks pass. AutoDev never merges, deploys, closes an issue, or deletes work. Review the diff and CI. Without `--publish`, publish the preserved branch manually after inspection; rerunning the same issue refuses to overwrite existing work.
+No `--publish`, no orchestrator push. Inspect and publish the retained branch manually if you chose a local-only run; rerunning the same issue intentionally refuses to overwrite it.
 
-## Failures and state
+## Commands
 
-State is stored in the common Git directory under `autodev/`: `events.jsonl`, `logs/issue-N/`, and `worktrees/issue-N/`. Logs may contain sensitive output; inspect before sharing. A repository-wide lock prevents overlapping cycles.
+| Command | What it does |
+| --- | --- |
+| `doctor` | Validates configuration; checks Git, `gh` authentication, and the agent executable's version. Does not test model authentication or execute project checks. |
+| `run --issue N --dry-run` | Reads configuration and prints a plan. No subprocesses, writes, or network calls. Supply the target repository root. |
+| `run --issue N` | Implements one open issue, validates unchanged content, and commits locally. |
+| `run --issue N --publish` | Also pushes the checked commit and opens a draft PR. Never merges. |
+| `status` | Shows the last persisted cycle event, worktree path, and result. |
 
-Ctrl+C signals cancellation. Agent and check process trees are terminated on cancellation or timeout. Git/GitHub calls are synchronous and can delay cancellation until they return. Forced termination can leave a stale lock; verify its PID is no longer running before manually removing it. A recorded phase is progress, not proof a crashed operation finished.
+`origin` fetch and push URLs must match `github_repo`. Standard GitHub HTTPS and `git@github.com:` URLs are supported; GitHub Enterprise URLs and custom SSH aliases are not yet supported.
 
-There is no automatic resume. Inspect the journal, logs, and `git worktree list` after failure. Preserve needed work before manually removing worktrees or branches. Failed PR creation can leave a pushed branch: create the PR manually after review.
+## How it works
 
-**A worktree is not a security sandbox.** Agents and checks have your user permissions, filesystem access, and network access. Process-tree termination is best effort; detached descendants may survive. Use OS/container isolation for untrusted tasks.
+```text
+ OPEN ISSUE
+     |
+     v
+ isolated worktree -----> coding agent
+                              |
+                              v
+                     snapshot source tree
+                              |
+                              v
+                       required checks
+                              |
+                     same source tree?
+                              |
+                              v
+                         local commit
+                              |
+                   hooks kept checked tree?
+                              |
+                 +------------+------------+
+                 |                         |
+              default                  --publish
+                 |                         |
+                 v                         v
+          inspect locally             draft GitHub PR
+```
 
-## Development
+A passing exit code is only part of the contract. AutoDev compares Git trees before and after validation and checks the resulting commit. If a test rewrites source or a commit hook changes checked content, the cycle fails and **does not publish**. The changed files or local commit remain available for inspection.
+
+## When a run fails
+
+AutoDev does not delete failed work or force-push over it.
+
+| Situation | Result / next step |
+| --- | --- |
+| Agent or check exits nonzero | Cycle fails. Inspect logs and the retained worktree. |
+| Check rewrites source | Publication stops. Inspect changes and rerun checks manually. |
+| Commit hook changes content | Local commit is retained, but not published. Review and validate it manually. |
+| Timeout or Ctrl+C | Agent/check process tree termination is attempted. No subsequent Git/GitHub command starts after cancellation is observed. |
+| Push or PR creation fails | Local work remains. A branch may already exist remotely; inspect before retrying manually. |
+| Same issue is run again | Existing work is preserved; AutoDev refuses to overwrite it. |
+| Stale lock after a forced exit | Verify no cycle is active before removing the lock. Never blindly delete worktrees. |
+
+State lives under the repository's **common Git directory**:
+
+```text
+<git-common-dir>/autodev/
+├── events.jsonl
+├── run.lock
+├── logs/issue-123/
+│   ├── agent.log
+│   └── check-1.log
+└── worktrees/issue-123/
+```
+
+Use `git rev-parse --path-format=absolute --git-common-dir` to locate it and `git worktree list` to inspect retained checkouts. Logs may contain sensitive agent output; review before sharing.
+
+## Trust boundary
+
+A worktree isolates Git changes; **it is not an operating-system sandbox**. Agents and checks inherit your user permissions and may access files and the network. `--publish` controls AutoDev's own publication steps, not what a privileged agent can do independently. Review executable configuration and use container/OS isolation for untrusted tasks.
+
+Agent and check commands have timeouts. Git/GitHub calls are synchronous: an in-flight operation can delay cancellation. Process-tree cleanup is best effort; detached descendants can survive. A journal phase is progress, not proof a crashed operation completed.
+
+## Testing
+
+From `skills/autodev`:
 
 ```sh
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+cargo build --release --locked
 ```
 
-Controlled subprocess tests cover dry-run, orchestration, failure, timeout, and work preservation. They do not exercise a paid model or live GitHub publication. CI targets Windows, Linux, and macOS.
+The suite includes unit checks for configuration, cancellation, state journaling, and locking; subprocess tests for failure paths; and a complete local cycle with **real Git, worktrees, commits, and a bare remote**. Only the GitHub API, remote identity response, and coding agent are simulated in that local cycle. CI runs on Windows, Linux, and macOS.
 
-Next: a disposable-repository live acceptance run, then persisted resume and PR-specific merge tracking. Parallel workers and automatic merging are deferred.
+The live model/GitHub acceptance run remains a separate release gate. Green unit tests do not establish model quality or production readiness.
 
-## Historical assets
+## Roadmap
 
-The `.claude/` prompts and `.specify/` templates remain as reference material. Rust reads `autodev.json`; it does not interpret the old Markdown configuration or automatically load bundled agents. Legacy PowerShell runners are unsupported and have [known bugs](docs/KNOWN-LIMITATIONS.md).
+- [ ] Complete a disposable-repository acceptance run with a real coding agent and GitHub.
+- [ ] Bound Git/GitHub network operations and improve cancellation.
+- [ ] Resume a recorded cycle without duplicating work.
+- [ ] Follow a specific PR's merge status before starting another issue.
 
-## License
+Parallel workers and automatic merges wait until the single-cycle contract is proven.
 
-[MIT](../LICENSE). Spec Kit-derived files retain their [upstream notice](../THIRD-PARTY-NOTICES.md). This is an independent community project; Claude Code is a separate product.
+## Part of Skills
+
+AutoDev lives in [`ambamichal/skills`](https://github.com/ambamichal/skills). Historical `.claude/` prompts and `.specify/` templates are optional references. Rust reads `autodev.json`; it does not interpret the old Markdown configuration or automatically install bundled agents. See [legacy limitations](docs/KNOWN-LIMITATIONS.md).
+
+[MIT license](../LICENSE) · [Third-party notices](../THIRD-PARTY-NOTICES.md) · [Contributing](../CONTRIBUTING.md)
