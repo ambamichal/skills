@@ -30,7 +30,7 @@ Give AutoDev an issue or let it select the next task. Rust prepares a separate w
 
 `0.2.0-alpha.1` is an experimental workflow runner. Local tests cover real Git worktrees, commits, local bare-remote pushes, stage recovery, PR monitoring, task tools, and failure preservation. The agent and GitHub API are controlled fixtures in those tests; this is not a claim of live model-to-GitHub acceptance.
 
-Rust is the execution engine. Provider-neutral role instructions, specification operations and templates live in [`workflow/`](workflow/README.md). Automatic merging and deployment are not performed.
+Rust is the execution engine. Provider-neutral stage instructions, specification operations and templates live in [`workflow/`](workflow/README.md). Automatic merging and deployment are not performed.
 
 ## Quickstart
 
@@ -48,7 +48,7 @@ While [PR #1](https://github.com/ambamichal/skills/pull/1) is still open, use `g
 
 ### 2. Tell AutoDev what a passing change means
 
-Run `autodev --repo /path/to/project init` to install **`autodev.json` and `workflow/`** without overwriting existing files. The installed example enables discovery, planning, implementation/delegation and quality stages. Replace the GitHub repository, base branch, agent and checks with your project's values. Commit these files; the original checkout must be clean.
+Run `autodev --repo /path/to/project init` to install **`autodev.json` and `workflow/`** without overwriting existing files. The installed example enables discovery, planning, implementation and quality stages. Replace the GitHub repository, base branch, agent and checks with your project's values. Commit these files; the original checkout must be clean.
 
 For a single agent invocation without explicit stages, this smaller configuration remains supported:
 
@@ -129,7 +129,7 @@ The entire backend contract:
 - Explicit workflow stages and specification operations also require `autodev-stage-result.json` with `status: "passed"` and an empty `blockers` array. Missing or blocked results stop processing even when the agent exits zero. Rust archives and removes this control file. A failed process may leave the file for manual inspection before resume.
 - `agent_probe` is optional and runs only in `doctor`. Choose a noninteractive, read-only diagnostic. There is no assumed `--version` convention. Like other Git/doctor calls, it currently has no timeout.
 
-Stdout and stderr go to `agent.log` or the configured stage's log; AutoDev does not parse vendor-specific output. Each stage starts a fresh process and can override its backend command/input mode. Delegation within a role uses that backend's capabilities. GitHub remains the issue/PR backend; agent independence does not imply support for other Git hosts.
+Stdout and stderr go to `agent.log` or the configured stage's log; AutoDev does not parse vendor-specific output. Each stage starts a fresh process and can override its backend command/input mode. The backend decides how to execute a stage; no predefined agent roles are required. GitHub remains the issue/PR backend; agent independence does not imply support for other Git hosts.
 
 ## How it works
 

@@ -1,5 +1,17 @@
 // Bundled workflow instructions are installed by `autodev init`.
 pub const FILES: &[(&str, &str)] = &[
+    (
+        "stages/quality.md",
+        include_str!("../workflow/stages/quality.md"),
+    ),
+    (
+        "stages/implementation.md",
+        include_str!("../workflow/stages/implementation.md"),
+    ),
+    (
+        "stages/discovery.md",
+        include_str!("../workflow/stages/discovery.md"),
+    ),
     ("NOTICE.md", include_str!("../workflow/NOTICE.md")),
     ("PARITY.md", include_str!("../workflow/PARITY.md")),
     (
@@ -41,46 +53,6 @@ pub const FILES: &[(&str, &str)] = &[
     (
         "commands/taskstoissues.md",
         include_str!("../workflow/commands/taskstoissues.md"),
-    ),
-    (
-        "roles/async-task-implementer.md",
-        include_str!("../workflow/roles/async-task-implementer.md"),
-    ),
-    (
-        "roles/backend-architect.md",
-        include_str!("../workflow/roles/backend-architect.md"),
-    ),
-    (
-        "roles/database-architect.md",
-        include_str!("../workflow/roles/database-architect.md"),
-    ),
-    (
-        "roles/devops-infrastructure.md",
-        include_str!("../workflow/roles/devops-infrastructure.md"),
-    ),
-    (
-        "roles/docs-maintainer.md",
-        include_str!("../workflow/roles/docs-maintainer.md"),
-    ),
-    (
-        "roles/frontend-developer.md",
-        include_str!("../workflow/roles/frontend-developer.md"),
-    ),
-    (
-        "roles/master-orchestrator.md",
-        include_str!("../workflow/roles/master-orchestrator.md"),
-    ),
-    (
-        "roles/realtime-integration-specialist.md",
-        include_str!("../workflow/roles/realtime-integration-specialist.md"),
-    ),
-    (
-        "roles/scrum-master-pm.md",
-        include_str!("../workflow/roles/scrum-master-pm.md"),
-    ),
-    (
-        "roles/test-guardian.md",
-        include_str!("../workflow/roles/test-guardian.md"),
     ),
     (
         "templates/agent-file-template.md",

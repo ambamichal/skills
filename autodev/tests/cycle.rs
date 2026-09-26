@@ -216,20 +216,23 @@ fn project_checks_preserve_partial_staging_and_untracked_files() {
 fn init_specification_tools_and_project_result_gates() {
     let test = Sandbox::new("project-tools");
     assert!(test.invoke(&["init"], "").status.success());
-    assert!(test
-        .0
-        .join("workflow/roles/master-orchestrator.md")
-        .is_file());
+    assert!(!test.0.join("workflow/roles").exists());
+    let example: serde_json::Value =
+        serde_json::from_str(include_str!("../autodev.example.json")).unwrap();
+    for stage in example["workflow"]["stages"].as_array().unwrap() {
+        assert!(test.0.join(stage["prompt"].as_str().unwrap()).is_file());
+    }
+    assert!(test.0.join("workflow/stages/implementation.md").is_file());
     assert!(test.0.join("workflow/templates/spec-template.md").is_file());
     assert!(test.calls().is_empty());
     fs::write(
-        test.0.join("workflow/roles/master-orchestrator.md"),
+        test.0.join("workflow/stages/implementation.md"),
         "customized",
     )
     .unwrap();
     assert!(test.invoke(&["init"], "").status.success());
     assert_eq!(
-        fs::read_to_string(test.0.join("workflow/roles/master-orchestrator.md")).unwrap(),
+        fs::read_to_string(test.0.join("workflow/stages/implementation.md")).unwrap(),
         "customized"
     );
     fs::create_dir_all(test.0.join("specs/001-test")).unwrap();

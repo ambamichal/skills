@@ -2,7 +2,7 @@
 
 The current Rust implementation uses dependencies recorded in `autodev/Cargo.lock`. Each dependency remains under its own license; the project's MIT license does not replace those terms.
 
-The workflow specification commands and templates include adapted material from GitHub Spec Kit (https://github.com/github/spec-kit). The original source snapshot did not record the upstream revision. The notice below applies to those portions, which are distributed as backend-neutral instructions, not a runtime dependency. Project-specific role prompts are also preserved and adapted from the historical project snapshot.
+The workflow specification commands and templates include adapted material from GitHub Spec Kit (https://github.com/github/spec-kit). The original source snapshot did not record the upstream revision. The notice below applies to those portions, which are distributed as backend-neutral instructions, not a runtime dependency.
 
 MIT License
 

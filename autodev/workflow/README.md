@@ -6,7 +6,7 @@ Rust executes the workflow; these provider-neutral instructions define the work.
 
 1. `autodev next` selects the next open issue after the highest closed issue, falling back to the lowest open issue.
 2. `autodev run` prepares a separate branch/worktree from the configured remote base.
-3. Configured stages run in order: discovery, planning/delegation, implementation, quality review. Each stage can select its own backend command; otherwise it inherits the main backend. The stage prompt identifies a JSON result file. Write `{"status":"passed","blockers":[]}` only after completing the stage. Use `{"status":"blocked","blockers":["reason"]}` when blocked. Missing/invalid results stop the cycle.
+3. Configured stages run in order: discovery, planning, implementation, quality review. Each stage can select its own backend command; otherwise it inherits the main backend. The stage prompt identifies a JSON result file. Write `{"status":"passed","blockers":[]}` only after completing the stage. Use `{"status":"blocked","blockers":["reason"]}` when blocked. Missing/invalid results stop the cycle.
 4. Required project commands validate the resulting source tree. Rust commits and optionally pushes/creates a draft PR with reviewers and recorded check evidence.
 5. An optional notification command receives the PR URL as its final argument. Configure your notification service independently; no service is assumed.
 6. `autodev loop` waits for that exact PR to be manually merged, then selects the next issue. A closed-unmerged PR or failed stage stops the loop. Every stage starts a fresh backend process.
@@ -38,7 +38,7 @@ autodev project issue-labels
 
 The other instruction operations are `constitution`, `implement`, and `taskstoissues`. Constitution writes `workflow/constitution.md`. Implementation follows task dependencies and checklist gates. Task-to-issues instructions prepare/review task metadata; the `project issues` command performs the actual publication.
 
-Templates preserve the artifact chain: constitution, specification and acceptance scenarios, clarifications, plan, research, data model, contracts, quickstart, dependency-ordered tasks and requirement checklists. Ten role documents retain discovery, coordination, backend, frontend, data, async, integrations, infrastructure, documentation and quality responsibilities. Delegation is performed by the selected agent backend; a backend without delegation support must report that limitation instead of silently claiming delegated work.
+Templates preserve the artifact chain: constitution, specification and acceptance scenarios, clarifications, plan, research, data model, contracts, quickstart, dependency-ordered tasks and requirement checklists. Four concise stage instructions cover discovery, planning, implementation and quality. No predefined agent roles or delegation capability are required.
 
 `project context` maintains a marked section in `AGENTS.md` from the plan and preserves text outside that section. `project renumber tasks.md --offset 2` updates task references with a backup. `project issue-titles --offset 2` updates task IDs in remote issue titles. Offsets are explicit migrations, not idempotent synchronization: do not apply one twice. Use `--dry-run` first. Issue creation skips task IDs already present in paginated issues; duplicate IDs stop processing. Task metadata includes phase, priority, parallel eligibility, story, goal and acceptance criteria.
 

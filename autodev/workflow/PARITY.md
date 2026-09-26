@@ -1,13 +1,12 @@
 # Workflow parity map
 
-Reference: the project's workflow source at commit `4dd7c19`. Rust replaces execution; the roles and specification process remain part of the product. Historical bugs and unimplemented flags are distinguished from capabilities below.
+Reference: the project's workflow source at commit `4dd7c19`. Rust replaces execution; the stages and specification process remain part of the product. Historical bugs and unimplemented flags are distinguished from capabilities below.
 
 | Capability | Current implementation | Verification |
 | --- | --- | --- |
 | Next sequential issue / explicit issue | `next`, `run [--issue N]`; paginated issues, highest-closed rule with lowest-open fallback | Selection unit test; loop integration |
-| Dependency/blocker discovery and progress reporting | `roles/scrum-master-pm.md`, discovery stage result gate | Zero-exit blocked-result regression; semantic work requires real-agent acceptance |
-| Planning, specialist delegation and integration | Planning stage + `roles/master-orchestrator.md`; backend delegation mechanism | Stage order/resume regression; actual delegation requires a capable backend |
-| Ten specialist/coordinator roles | All ten role instruction documents under `roles/` | Bundled asset installation; source comparison |
+| Dependency/blocker discovery and progress reporting | `stages/discovery.md`, discovery stage result gate | Zero-exit blocked-result regression; semantic work requires real-agent acceptance |
+| Planning and implementation | `stages/planning.md` and `stages/implementation.md`; execution strategy belongs to the backend | Stage order/resume regression |
 | Specification lifecycle | Nine `project prompt` operations: specify, clarify, plan, tasks, analyze, checklist, constitution, implement, taskstoissues | Installed assets and project prompt gate integration |
 | Artifact templates | Constitution, spec, plan, tasks, checklist and agent context templates | Bundled assets; scaffolding test |
 | Feature branch/spec scaffold | `project feature NAME [--number N]`; numbering inspects specs and local/remote branches | Real Git regression |
@@ -16,7 +15,7 @@ Reference: the project's workflow source at commit `4dd7c19`. Rust replaces exec
 | Task issue generation | `project issues TASKS`; phase/priority/story/parallel/goal/acceptance metadata; existing IDs skipped | Parser unit and mocked GitHub integration |
 | Label creation and assignment | `project labels TASKS`, `project issue-labels`; metadata plus backend/frontend/API/UI/database/DevOps inference | Inference and mocked GitHub regression |
 | Task/issue numbering migration | `project renumber --offset`, `project issue-titles --offset`; task backup | Boundary/offset and backup regression |
-| Project-specific quality checks | Configured commands plus test-guardian review; backend/frontend/coverage/lint/types/security/migration checks supplied by the project | Check failure/tree stability tests; no fabricated pass claims |
+| Project-specific quality checks | Configured commands plus quality stage review; backend/frontend/coverage/lint/types/security/migration checks supplied by the project | Check failure/tree stability tests; no fabricated pass claims |
 | Branch creation, conventional commit | `run --until prepare|commit`; dedicated worktree from remote base | Real Git cycle tests |
 | Independent push / PR control | `--until push|pr`, `--publish`, `workflow.auto_push/auto_pr` | Publication policy and cycle tests |
 | Reviewer assignment and PR summary | `workflow.reviewers`; task title, changed files, executed-check evidence | Fixture argument assertions |
@@ -34,4 +33,4 @@ The old loop watched any base SHA change, could miss merges during agent executi
 
 The original helper had pull/push retry loops, while the prompt workflow advertised `resume`, `skip-tests` and approval-dependent `auto_merge` without an executable state machine. Rust now provides checkpointed resume; required checks remain mandatory and merge remains a human action. GitHub Mobile notification delivery was external to the old workflow and remains external.
 
-Instruction parity is not proof that a model follows the instructions. A full acceptance run must still demonstrate discovery, specialist delegation, quality review, issue-to-PR execution, manual merge and the next cycle with a real backend. Automated tests use controlled backend/GitHub fixtures and real local Git where stated.
+Instruction parity is not proof that a model follows the instructions. A full acceptance run must still demonstrate discovery, implementation, quality review, issue-to-PR execution, manual merge and the next cycle with a real backend. Automated tests use controlled backend/GitHub fixtures and real local Git where stated.
