@@ -1,11 +1,8 @@
 # Third-party notices
 
-This distribution contains material derived from GitHub Spec Kit, including the `speckit.*` commands and `.specify` templates and utilities. Project-specific modifications are included. The exact upstream revision was not recorded in the historical source snapshot.
+The current Rust implementation uses dependencies recorded in `autodev/Cargo.lock`. Each dependency remains under its own license; the project's MIT license does not replace those terms.
 
-Upstream: https://github.com/github/spec-kit
-License source: https://github.com/github/spec-kit/blob/main/LICENSE
-
-The following notice applies to the upstream-derived portions:
+The workflow specification commands and templates include adapted material from GitHub Spec Kit (https://github.com/github/spec-kit). The original source snapshot did not record the upstream revision. The notice below applies to those portions, which are distributed as backend-neutral instructions, not a runtime dependency.
 
 MIT License
 

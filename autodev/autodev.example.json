@@ -1,0 +1,48 @@
+{
+  "base_branch": "main",
+  "github_repo": "owner/repository",
+  "agent": [
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-"
+  ],
+  "agent_input": "stdin",
+  "agent_probe": [
+    "codex",
+    "--version"
+  ],
+  "checks": [
+    [
+      "cargo",
+      "test",
+      "--locked"
+    ]
+  ],
+  "timeout_seconds": 3600,
+  "workflow": {
+    "stages": [
+      {
+        "name": "discovery",
+        "prompt": "workflow/stages/discovery.md"
+      },
+      {
+        "name": "planning",
+        "prompt": "workflow/stages/planning.md"
+      },
+      {
+        "name": "implementation",
+        "prompt": "workflow/stages/implementation.md"
+      },
+      {
+        "name": "quality",
+        "prompt": "workflow/stages/quality.md"
+      }
+    ],
+    "auto_push": false,
+    "auto_pr": false,
+    "auto_cleanup": false,
+    "reviewers": []
+  }
+}
